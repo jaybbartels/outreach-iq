@@ -110,7 +110,7 @@ export default function SelectPage() {
     // Confidence filter (using linkedin_engagement_score as confidence)
     if (confidenceFilter !== 'all') {
       filtered = filtered.filter((exec) => {
-        const confidence = exec.linkedin_engagement_score || 0
+        const confidence = exec.linkedin_engagement_score ?? 0
         if (confidenceFilter === 'high') return confidence >= 70
         if (confidenceFilter === 'medium') return confidence >= 40 && confidence < 70
         if (confidenceFilter === 'low') return confidence < 40
@@ -163,10 +163,10 @@ export default function SelectPage() {
     window.location.href = '/strategies'
   }
 
-  const getConfidenceBadge = (score: number | null) => {
-    if (!score) return { label: 'Unknown', color: 'bg-gray-200 text-gray-900' }
-    if (score >= 70) return { label: '✅ High', color: 'bg-green-200 text-green-900' }
-    if (score >= 40) return { label: '⚠️ Medium', color: 'bg-yellow-200 text-yellow-900' }
+  const getConfidenceBadge = (score: number | null | undefined) => {
+    const confidence = score ?? 0
+    if (confidence >= 70) return { label: '✅ High', color: 'bg-green-200 text-green-900' }
+    if (confidence >= 40) return { label: '⚠️ Medium', color: 'bg-yellow-200 text-yellow-900' }
     return { label: '❌ Low', color: 'bg-red-200 text-red-900' }
   }
 
