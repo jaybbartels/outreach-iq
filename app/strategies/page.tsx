@@ -244,8 +244,6 @@ export default function StrategiesPage() {
       return
     }
 
-    console.log('Selected executive:', selectedExecutive)
-
     localStorage.setItem(
       'messageData',
       JSON.stringify({
@@ -389,19 +387,34 @@ export default function StrategiesPage() {
 
         {/* Buttons */}
         {!loading && strategies.length > 0 && (
-          <div className="flex gap-4 mt-8">
+          <div className="flex gap-4 mt-8 flex-wrap">
             <button
               onClick={handleGenerateMessages}
-              className="flex-1 px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-lg"
+              className="flex-1 min-w-48 px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-lg"
             >
               ✉️ Generate Messages
             </button>
-            <Link href="/select" className="flex-1">
+            <Link href="/bulk-outreach" className="flex-1 min-w-48">
+              <button
+                onClick={() => {
+                  localStorage.setItem(
+                    'campaignData',
+                    JSON.stringify({
+                      selectedExecutiveIds: strategies.map((s) => s.executiveId),
+                    })
+                  )
+                }}
+                className="w-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-lg"
+              >
+                📊 Bulk Outreach
+              </button>
+            </Link>
+            <Link href="/select" className="flex-1 min-w-48">
               <button className="w-full px-6 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg">
                 ← Select Different Executives
               </button>
             </Link>
-            <Link href="/" className="flex-1">
+            <Link href="/" className="flex-1 min-w-48">
               <button className="w-full px-6 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg">
                 🏠 Home
               </button>
