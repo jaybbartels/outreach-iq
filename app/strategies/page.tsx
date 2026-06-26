@@ -238,6 +238,32 @@ export default function StrategiesPage() {
     </div>
   )
 
+  const handleGenerateMessages = () => {
+    if (!selectedExecutive) {
+      setMessage('❌ Please select an executive first')
+      return
+    }
+
+    console.log('Selected executive:', selectedExecutive)
+
+    localStorage.setItem(
+      'messageData',
+      JSON.stringify({
+        executive: {
+          id: selectedExecutive.executiveId,
+          name: selectedExecutive.name,
+          title: selectedExecutive.title,
+          strategies: selectedExecutive.strategies,
+          overallConnectionStrength: selectedExecutive.overallConnectionStrength,
+          bestTimeToReach: selectedExecutive.bestTimeToReach,
+        },
+        profile,
+      })
+    )
+
+    window.location.href = '/messages-context'
+  }
+
   return (
     <div className="bg-gray-50 min-h-screen py-8">
       <div className="max-w-7xl mx-auto px-4 space-y-6">
@@ -364,6 +390,12 @@ export default function StrategiesPage() {
         {/* Buttons */}
         {!loading && strategies.length > 0 && (
           <div className="flex gap-4 mt-8">
+            <button
+              onClick={handleGenerateMessages}
+              className="flex-1 px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-lg"
+            >
+              ✉️ Generate Messages
+            </button>
             <Link href="/select" className="flex-1">
               <button className="w-full px-6 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg">
                 ← Select Different Executives
