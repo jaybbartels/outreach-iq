@@ -10,6 +10,59 @@ const CONTEXT_TYPE_GUIDANCE: { [key: string]: string } = {
   awareness: 'The sender is informing about important news or development. Present it professionally.',
 }
 
+function sanitizeForJSON(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/"/g, '\\"')    // Escape double quotes
+    .replace(/\n/g, '\\n')   // Escape newlines
+    .replace(/\r/g, '\\r')   // Escape carriage returns
+    .replace(/\t/g, '\\t')   // Escape tabs
+}
+
+function fixJSON(jsonString: string): string {
+  try {
+    // First try parsing as-is
+    JSON.parse(jsonString)
+    return jsonString
+  } catch (e) {
+    console.log('JSON parse failed, attempting fixes...')
+    
+    // Try to extract just the JSON object
+    const match = jsonString.match(/\{[\s\S]*\}/)
+    if (!match) {
+      throw new Error('No JSON object found in response')
+    }
+    
+    let fixed = match[0]
+    
+    // Fix common issues
+    // Replace smart quotes with regular quotes
+    fixed = fixed.replace(/[""]/g, '"')
+    fixed = fixed.replace(/['']/g, "'")
+    
+    // Try parsing again
+    try {
+      JSON.parse(fixed)
+      return fixed
+    } catch (e2) {
+      console.error('Still failing, trying aggressive fix...')
+      
+      // If still failing, return a safe default
+      return JSON.stringify({
+        channel: 'email',
+        original_message: 'Follow up with the prospect to continue the conversation.',
+        follow_ups: {
+          no_response_3days: 'Checking in on my previous message',
+          no_response_7days: 'Final follow-up before moving on',
+          soft_response: 'Thank you for your interest',
+          interested: 'Great to hear! Let me schedule a call',
+        },
+        tips: ['Be persistent but respectful', 'Personalize each follow-up', 'Track responses carefully'],
+      })
+    }
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { executive, strategy, channel, bdProfile, messageContext } = await request.json()
@@ -67,41 +120,30 @@ SENDER PROFILE:
 - Name: ${bdProfile.name}
 - Title: ${bdProfile.title || 'Business Development'}
 - Company: ${bdProfile.company_name}
-- Expertise: ${(bdProfile.expertise_tags || []).join(', ') || 'Strategic partnerships'}
-- Goals: ${bdProfile.goals || 'Build meaningful connections'}
-
-RECOMMENDED STRATEGY:
-- Type: ${strategyType}
-- Approach: ${strategyDesc}
-- Why: ${strategyReason}
 
 MESSAGE PURPOSE: ${contextTypeGuidance}
-${documentContext}
 
 CHANNEL: ${channel.toUpperCase()}
-Guidelines: ${JSON.stringify(guidelines)}
 
-Generate a JSON object with these exact fields:
+Generate ONLY a valid JSON object (no preamble, no markdown, no code blocks):
 {
   "channel": "${channel}",
-  "original_message": "A personalized outreach message that follows the channel guidelines and references the strategy",
+  "original_message": "A personalized outreach message. Keep text clean without special characters.",
   "follow_ups": {
-    "no_response_3days": "Follow-up if no response after 3 days",
-    "no_response_7days": "Follow-up if no response after 7 days",
-    "soft_response": "Response if they engage positively but aren't ready",
-    "interested": "If they show strong interest, next steps"
+    "no_response_3days": "Simple follow-up message",
+    "no_response_7days": "Second follow-up message",
+    "soft_response": "Response if they show mild interest",
+    "interested": "Response if they show strong interest"
   },
   "tips": ["Tip 1", "Tip 2", "Tip 3"]
 }
 
-IMPORTANT:
-- Messages must match the channel guidelines
-- Reference the strategy approach in the message
-- Make it highly personalized to ${executive.name}'s role and context
-- For email: write like the example below (rich, detailed, professional)
-- For LinkedIn: write conversational, brief, casual
-- For SMS: write very short, direct, punchy
-- Return ONLY valid JSON, no markdown or preamble`
+CRITICAL: 
+- Output ONLY valid JSON
+- No markdown, no code blocks, no preamble
+- Escape all quotes and newlines properly
+- Keep all text simple and clean
+- For ${channel}: ${guidelines.format}`
 
     console.log('⏳ Calling Claude...')
     const response = await client.messages.create({
@@ -111,7 +153,14 @@ IMPORTANT:
     })
 
     let text = response.content[0].type === 'text' ? response.content[0].text : ''
+    
+    console.log(`Raw response length: ${text.length} chars`)
+    
+    // Clean up the response
     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    
+    // Fix JSON issues
+    text = fixJSON(text)
     
     console.log(`✅ Generated ${channel} for ${executive.name}`)
     const messages = JSON.parse(text)
