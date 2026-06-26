@@ -10,6 +10,7 @@ interface Strategy {
   executiveId: string
   name: string
   title: string
+  email: string
   strategies: any
 }
 
@@ -30,6 +31,7 @@ export default function BulkOutreachPage() {
   const [outreachPurpose, setOutreachPurpose] = useState('')
   const [generatedMessages, setGeneratedMessages] = useState<BulkMessage[]>([])
   const [step, setStep] = useState<'input' | 'generating' | 'preview'>('input')
+  const [generationProgress, setGenerationProgress] = useState(0)
 
   useEffect(() => {
     loadData()
@@ -56,11 +58,11 @@ export default function BulkOutreachPage() {
         .in('id', campaign.selectedExecutiveIds)
 
       if (execData) {
-        // For demo, create simple strategy objects
         const strats = execData.map((exec) => ({
           executiveId: exec.id,
           name: exec.name,
           title: exec.title,
+          email: exec.email || '',
           strategies: {
             primary: {
               type: 'linkedin',
@@ -90,108 +92,126 @@ export default function BulkOutreachPage() {
 
     try {
       setLoading(true)
-      setMessage('🤖 Generating messages for all executives...')
       setStep('generating')
-      const messages: BulkMessage[] = []
+      setGeneratedMessages([]) // Start with empty array
+      let allMessages: BulkMessage[] = []
 
       for (let i = 0; i < strategies.length; i++) {
         const exec = strategies[i]
+        const progressPercent = Math.round((i / strategies.length) * 100)
+        setGenerationProgress(progressPercent)
         setMessage(
           `🤖 Generating messages for ${exec.name} (${i + 1}/${strategies.length})...`
         )
 
-        // Generate email message
-        const emailResponse = await fetch('/api/generate-messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            executive: exec,
-            strategy: exec.strategies,
-            channel: 'email',
-            bdProfile: profile,
-            isVariant: false,
-            messageContext: {
-              contextType: 'none',
-              documentName: '',
-              documentContent: outreachPurpose,
-            },
-          }),
-        })
+        console.log(`Starting generation for ${exec.name}...`)
 
-        const emailData = await emailResponse.json()
-        const emailMessage = emailData.messages?.original_message || ''
+        try {
+          // Generate email message
+          console.log(`Fetching email message for ${exec.name}...`)
+          const emailResponse = await fetch('/api/generate-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              executive: exec,
+              strategy: exec.strategies,
+              channel: 'email',
+              bdProfile: profile,
+              isVariant: false,
+              messageContext: {
+                contextType: 'none',
+                documentName: '',
+                documentContent: outreachPurpose,
+              },
+            }),
+          })
 
-        // Generate LinkedIn message
-        const linkedinResponse = await fetch('/api/generate-messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            executive: exec,
-            strategy: exec.strategies,
-            channel: 'linkedin',
-            bdProfile: profile,
-            isVariant: false,
-            messageContext: {
-              contextType: 'none',
-              documentName: '',
-              documentContent: outreachPurpose,
-            },
-          }),
-        })
+          const emailData = await emailResponse.json()
+          const emailMessage = emailData.messages?.original_message || 'Failed to generate'
+          console.log(`Email message for ${exec.name}: ${emailMessage.substring(0, 50)}...`)
 
-        const linkedinData = await linkedinResponse.json()
-        const linkedinMessage = linkedinData.messages?.original_message || ''
+          // Generate LinkedIn message
+          console.log(`Fetching LinkedIn message for ${exec.name}...`)
+          const linkedinResponse = await fetch('/api/generate-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              executive: exec,
+              strategy: exec.strategies,
+              channel: 'linkedin',
+              bdProfile: profile,
+              isVariant: false,
+              messageContext: {
+                contextType: 'none',
+                documentName: '',
+                documentContent: outreachPurpose,
+              },
+            }),
+          })
 
-        // Generate SMS message
-        const smsResponse = await fetch('/api/generate-messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            executive: exec,
-            strategy: exec.strategies,
-            channel: 'sms',
-            bdProfile: profile,
-            isVariant: false,
-            messageContext: {
-              contextType: 'none',
-              documentName: '',
-              documentContent: outreachPurpose,
-            },
-          }),
-        })
+          const linkedinData = await linkedinResponse.json()
+          const linkedinMessage = linkedinData.messages?.original_message || 'Failed to generate'
+          console.log(
+            `LinkedIn message for ${exec.name}: ${linkedinMessage.substring(0, 50)}...`
+          )
 
-        const smsData = await smsResponse.json()
-        const smsMessage = smsData.messages?.original_message || ''
+          // Generate SMS message
+          console.log(`Fetching SMS message for ${exec.name}...`)
+          const smsResponse = await fetch('/api/generate-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              executive: exec,
+              strategy: exec.strategies,
+              channel: 'sms',
+              bdProfile: profile,
+              isVariant: false,
+              messageContext: {
+                contextType: 'none',
+                documentName: '',
+                documentContent: outreachPurpose,
+              },
+            }),
+          })
 
-        messages.push({
-          executiveName: exec.name,
-          email: '', // We'll need to fetch this from executives table
-          title: exec.title,
-          emailMessage,
-          linkedinMessage,
-          smsMessage,
-        })
-      }
+          const smsData = await smsResponse.json()
+          const smsMessage = smsData.messages?.original_message || 'Failed to generate'
+          console.log(`SMS message for ${exec.name}: ${smsMessage.substring(0, 50)}...`)
 
-      // Fetch email addresses
-      const { data: execsWithEmail } = await supabase
-        .from('executives')
-        .select('id, email')
-        .in(
-          'id',
-          strategies.map((s) => s.executiveId)
-        )
-
-      if (execsWithEmail) {
-        messages.forEach((msg) => {
-          const exec = execsWithEmail.find((e) => e.email)
-          if (exec) {
-            msg.email = exec.email || ''
+          // Create message object
+          const msgObj: BulkMessage = {
+            executiveName: exec.name,
+            email: exec.email,
+            title: exec.title,
+            emailMessage,
+            linkedinMessage,
+            smsMessage,
           }
-        })
+
+          // Add to all messages array
+          allMessages = [...allMessages, msgObj]
+          console.log(`Total messages accumulated: ${allMessages.length}`)
+
+          // Update state immediately so user can see progress
+          setGeneratedMessages([...allMessages])
+        } catch (error) {
+          console.error(`Error generating for ${exec.name}:`, error)
+          const msgObj: BulkMessage = {
+            executiveName: exec.name,
+            email: exec.email,
+            title: exec.title,
+            emailMessage: 'Error generating message',
+            linkedinMessage: 'Error generating message',
+            smsMessage: 'Error generating message',
+          }
+          allMessages = [...allMessages, msgObj]
+          setGeneratedMessages([...allMessages])
+        }
       }
 
-      setGeneratedMessages(messages)
+      console.log(`Final total messages: ${allMessages.length}`)
+      setGeneratedMessages(allMessages)
+      setGenerationProgress(100)
       setStep('preview')
       setMessage('✅ Messages generated successfully!')
     } catch (error) {
@@ -200,6 +220,7 @@ export default function BulkOutreachPage() {
       setStep('input')
     } finally {
       setLoading(false)
+      setGenerationProgress(0)
     }
   }
 
@@ -210,6 +231,7 @@ export default function BulkOutreachPage() {
     }
 
     try {
+      console.log(`Downloading ${generatedMessages.length} messages...`)
       const data = generatedMessages.map((msg) => ({
         'Executive Name': msg.executiveName,
         'Title': msg.title,
@@ -228,9 +250,9 @@ export default function BulkOutreachPage() {
         { wch: 20 },
         { wch: 20 },
         { wch: 30 },
-        { wch: 50 },
-        { wch: 50 },
-        { wch: 30 },
+        { wch: 60 },
+        { wch: 60 },
+        { wch: 40 },
       ]
 
       XLSX.writeFile(wb, 'bulk-outreach-messages.xlsx')
@@ -318,27 +340,21 @@ export default function BulkOutreachPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {generatedMessages.slice(0, 5).map((msg, idx) => (
+                    {generatedMessages.map((msg, idx) => (
                       <tr key={idx} className="border-t-4 border-gray-300">
                         <td className="px-4 py-3">
                           <p className="font-bold text-gray-900 text-lg">{msg.executiveName}</p>
                           <p className="text-gray-700">{msg.title}</p>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">{msg.email}</td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {msg.emailMessage.substring(0, 100)}...
+                        <td className="px-4 py-3 text-gray-700">{msg.email || '—'}</td>
+                        <td className="px-4 py-3 text-gray-700 text-sm">
+                          {msg.emailMessage.substring(0, 150)}...
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {generatedMessages.length > 5 && (
-                <p className="text-gray-700 mb-8">
-                  ... and {generatedMessages.length - 5} more executives
-                </p>
-              )}
 
               <button
                 onClick={downloadSpreadsheet}
@@ -372,6 +388,19 @@ export default function BulkOutreachPage() {
           <div className="text-center bg-white rounded-xl shadow-lg p-16 border-4 border-gray-200">
             <div className="animate-spin text-7xl mb-6">⏳</div>
             <p className="text-3xl text-gray-700 font-bold">{message}</p>
+            {generatedMessages.length > 0 && (
+              <div className="mt-8">
+                <p className="text-2xl text-gray-700 font-bold mb-4">
+                  Generated so far: {generatedMessages.length}/{strategies.length}
+                </p>
+                <div className="w-full bg-gray-300 rounded-full h-6 mb-4">
+                  <div
+                    className="bg-green-600 h-6 rounded-full transition-all"
+                    style={{ width: `${generationProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
