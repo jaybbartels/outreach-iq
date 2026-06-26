@@ -31,7 +31,7 @@ export default function BulkOutreachPage() {
   const [outreachPurpose, setOutreachPurpose] = useState('')
   const [generatedMessages, setGeneratedMessages] = useState<BulkMessage[]>([])
   const [step, setStep] = useState<'input' | 'generating' | 'preview'>('input')
-  const [generationProgress, setGenerationProgress] = useState(0)
+  const [progressLog, setProgressLog] = useState<string[]>([])
 
   useEffect(() => {
     loadData()
@@ -79,6 +79,11 @@ export default function BulkOutreachPage() {
     }
   }
 
+  const addLog = (text: string) => {
+    setProgressLog((prev) => [...prev, text])
+    console.log(text)
+  }
+
   const generateBulkMessages = async () => {
     if (!outreachPurpose.trim()) {
       setMessage('❌ Please enter the purpose of your outreach')
@@ -93,22 +98,19 @@ export default function BulkOutreachPage() {
     try {
       setLoading(true)
       setStep('generating')
-      setGeneratedMessages([]) // Start with empty array
-      let allMessages: BulkMessage[] = []
+      setGeneratedMessages([])
+      setProgressLog([])
+      addLog(`📊 Starting bulk message generation for ${strategies.length} executives...`)
+
+      const allMessages: BulkMessage[] = []
 
       for (let i = 0; i < strategies.length; i++) {
         const exec = strategies[i]
-        const progressPercent = Math.round((i / strategies.length) * 100)
-        setGenerationProgress(progressPercent)
-        setMessage(
-          `🤖 Generating messages for ${exec.name} (${i + 1}/${strategies.length})...`
-        )
-
-        console.log(`Starting generation for ${exec.name}...`)
+        addLog(`\n[${i + 1}/${strategies.length}] Processing ${exec.name}...`)
 
         try {
           // Generate email message
-          console.log(`Fetching email message for ${exec.name}...`)
+          addLog(`  📧 Generating email for ${exec.name}...`)
           const emailResponse = await fetch('/api/generate-messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -126,12 +128,19 @@ export default function BulkOutreachPage() {
             }),
           })
 
+          if (!emailResponse.ok) {
+            addLog(`  ❌ Email API error: ${emailResponse.status}`)
+            throw new Error(`Email API error: ${emailResponse.status}`)
+          }
+
           const emailData = await emailResponse.json()
-          const emailMessage = emailData.messages?.original_message || 'Failed to generate'
-          console.log(`Email message for ${exec.name}: ${emailMessage.substring(0, 50)}...`)
+          const emailMessage = emailData.messages?.original_message || ''
+          addLog(
+            `  ✅ Email generated: ${emailMessage.substring(0, 50).replace(/\n/g, ' ')}...`
+          )
 
           // Generate LinkedIn message
-          console.log(`Fetching LinkedIn message for ${exec.name}...`)
+          addLog(`  🔗 Generating LinkedIn for ${exec.name}...`)
           const linkedinResponse = await fetch('/api/generate-messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -149,14 +158,19 @@ export default function BulkOutreachPage() {
             }),
           })
 
+          if (!linkedinResponse.ok) {
+            addLog(`  ❌ LinkedIn API error: ${linkedinResponse.status}`)
+            throw new Error(`LinkedIn API error: ${linkedinResponse.status}`)
+          }
+
           const linkedinData = await linkedinResponse.json()
-          const linkedinMessage = linkedinData.messages?.original_message || 'Failed to generate'
-          console.log(
-            `LinkedIn message for ${exec.name}: ${linkedinMessage.substring(0, 50)}...`
+          const linkedinMessage = linkedinData.messages?.original_message || ''
+          addLog(
+            `  ✅ LinkedIn generated: ${linkedinMessage.substring(0, 50).replace(/\n/g, ' ')}...`
           )
 
           // Generate SMS message
-          console.log(`Fetching SMS message for ${exec.name}...`)
+          addLog(`  💬 Generating SMS for ${exec.name}...`)
           const smsResponse = await fetch('/api/generate-messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -174,9 +188,14 @@ export default function BulkOutreachPage() {
             }),
           })
 
+          if (!smsResponse.ok) {
+            addLog(`  ❌ SMS API error: ${smsResponse.status}`)
+            throw new Error(`SMS API error: ${smsResponse.status}`)
+          }
+
           const smsData = await smsResponse.json()
-          const smsMessage = smsData.messages?.original_message || 'Failed to generate'
-          console.log(`SMS message for ${exec.name}: ${smsMessage.substring(0, 50)}...`)
+          const smsMessage = smsData.messages?.original_message || ''
+          addLog(`  ✅ SMS generated: ${smsMessage.substring(0, 50).replace(/\n/g, ' ')}...`)
 
           // Create message object
           const msgObj: BulkMessage = {
@@ -188,39 +207,39 @@ export default function BulkOutreachPage() {
             smsMessage,
           }
 
-          // Add to all messages array
-          allMessages = [...allMessages, msgObj]
-          console.log(`Total messages accumulated: ${allMessages.length}`)
+          // Verify message object
+          addLog(
+            `  ✅ Message object created: ${msgObj.executiveName} | Email: ${msgObj.email}`
+          )
 
-          // Update state immediately so user can see progress
+          allMessages.push(msgObj)
           setGeneratedMessages([...allMessages])
+          addLog(`  ✅ Messages accumulated: ${allMessages.length}/${strategies.length}`)
         } catch (error) {
-          console.error(`Error generating for ${exec.name}:`, error)
+          addLog(`  ❌ Error for ${exec.name}: ${String(error)}`)
           const msgObj: BulkMessage = {
             executiveName: exec.name,
             email: exec.email,
             title: exec.title,
-            emailMessage: 'Error generating message',
-            linkedinMessage: 'Error generating message',
-            smsMessage: 'Error generating message',
+            emailMessage: `Error: ${String(error)}`,
+            linkedinMessage: 'Error generating',
+            smsMessage: 'Error generating',
           }
-          allMessages = [...allMessages, msgObj]
+          allMessages.push(msgObj)
           setGeneratedMessages([...allMessages])
         }
       }
 
-      console.log(`Final total messages: ${allMessages.length}`)
+      addLog(`\n✅ Generation complete! Total: ${allMessages.length} executives`)
       setGeneratedMessages(allMessages)
-      setGenerationProgress(100)
       setStep('preview')
       setMessage('✅ Messages generated successfully!')
     } catch (error) {
-      console.error('Error generating messages:', error)
+      addLog(`❌ Critical error: ${String(error)}`)
       setMessage('❌ Error generating messages: ' + String(error))
       setStep('input')
     } finally {
       setLoading(false)
-      setGenerationProgress(0)
     }
   }
 
@@ -231,7 +250,8 @@ export default function BulkOutreachPage() {
     }
 
     try {
-      console.log(`Downloading ${generatedMessages.length} messages...`)
+      addLog(`\n📥 Exporting ${generatedMessages.length} messages to Excel...`)
+
       const data = generatedMessages.map((msg) => ({
         'Executive Name': msg.executiveName,
         'Title': msg.title,
@@ -241,11 +261,12 @@ export default function BulkOutreachPage() {
         'SMS Message': msg.smsMessage,
       }))
 
+      addLog(`  Creating workbook with ${data.length} rows...`)
+
       const ws = XLSX.utils.json_to_sheet(data)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Outreach Messages')
 
-      // Set column widths
       ws['!cols'] = [
         { wch: 20 },
         { wch: 20 },
@@ -256,9 +277,10 @@ export default function BulkOutreachPage() {
       ]
 
       XLSX.writeFile(wb, 'bulk-outreach-messages.xlsx')
+      addLog(`✅ Spreadsheet downloaded successfully!`)
       setMessage('✅ Spreadsheet downloaded successfully!')
     } catch (error) {
-      console.error('Error downloading spreadsheet:', error)
+      addLog(`❌ Error downloading: ${String(error)}`)
       setMessage('❌ Error downloading spreadsheet')
     }
   }
@@ -318,6 +340,36 @@ export default function BulkOutreachPage() {
           </div>
         )}
 
+        {step === 'generating' && (
+          <div className="bg-white rounded-xl shadow-lg p-12 border-4 border-gray-200">
+            <h2 className="text-4xl font-bold text-gray-900 mb-6">Generation in Progress...</h2>
+
+            <div className="bg-blue-50 border-4 border-blue-300 rounded-lg p-6 mb-6">
+              <p className="text-xl font-bold text-blue-900">
+                Generated so far: {generatedMessages.length}/{strategies.length}
+              </p>
+            </div>
+
+            {/* Progress Log */}
+            <div className="bg-gray-900 text-white font-mono text-sm p-6 rounded-lg max-h-96 overflow-y-auto">
+              {progressLog.map((log, idx) => (
+                <div key={idx} className="whitespace-pre-wrap break-words">
+                  {log}
+                </div>
+              ))}
+            </div>
+
+            {generatedMessages.length === strategies.length && (
+              <button
+                onClick={() => setStep('preview')}
+                className="mt-6 w-full px-8 py-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-2xl"
+              >
+                ✅ View Results
+              </button>
+            )}
+          </div>
+        )}
+
         {step === 'preview' && generatedMessages.length > 0 && (
           <div className="space-y-8">
             <div className="bg-white rounded-xl shadow-lg p-12 border-4 border-gray-200">
@@ -325,30 +377,38 @@ export default function BulkOutreachPage() {
 
               <div className="mb-8 bg-green-50 border-4 border-green-300 rounded-lg p-6">
                 <p className="text-xl font-bold text-green-900">
-                  ✅ Generated {generatedMessages.length} message sets (Email + LinkedIn + SMS for each executive)
+                  ✅ Generated {generatedMessages.length} message sets (Email + LinkedIn + SMS)
                 </p>
               </div>
 
               {/* Preview Table */}
               <div className="overflow-x-auto mb-8">
-                <table className="w-full border-4 border-gray-300">
+                <table className="w-full border-4 border-gray-300 text-sm">
                   <thead>
                     <tr className="bg-gray-900 text-white">
-                      <th className="px-4 py-3 text-left font-bold text-lg">Executive</th>
-                      <th className="px-4 py-3 text-left font-bold text-lg">Email</th>
-                      <th className="px-4 py-3 text-left font-bold text-lg">Email Message (Preview)</th>
+                      <th className="px-3 py-2 text-left font-bold">Executive</th>
+                      <th className="px-3 py-2 text-left font-bold">Email</th>
+                      <th className="px-3 py-2 text-left font-bold">Email Message</th>
+                      <th className="px-3 py-2 text-left font-bold">LinkedIn Message</th>
+                      <th className="px-3 py-2 text-left font-bold">SMS Message</th>
                     </tr>
                   </thead>
                   <tbody>
                     {generatedMessages.map((msg, idx) => (
                       <tr key={idx} className="border-t-4 border-gray-300">
-                        <td className="px-4 py-3">
-                          <p className="font-bold text-gray-900 text-lg">{msg.executiveName}</p>
-                          <p className="text-gray-700">{msg.title}</p>
+                        <td className="px-3 py-2">
+                          <p className="font-bold text-gray-900">{msg.executiveName}</p>
+                          <p className="text-gray-700 text-xs">{msg.title}</p>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">{msg.email || '—'}</td>
-                        <td className="px-4 py-3 text-gray-700 text-sm">
-                          {msg.emailMessage.substring(0, 150)}...
+                        <td className="px-3 py-2 text-gray-700 text-xs">{msg.email || '—'}</td>
+                        <td className="px-3 py-2 text-gray-700 text-xs">
+                          {msg.emailMessage.substring(0, 80)}...
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 text-xs">
+                          {msg.linkedinMessage.substring(0, 80)}...
+                        </td>
+                        <td className="px-3 py-2 text-gray-700 text-xs">
+                          {msg.smsMessage.substring(0, 80)}...
                         </td>
                       </tr>
                     ))}
@@ -369,6 +429,7 @@ export default function BulkOutreachPage() {
                     setStep('input')
                     setOutreachPurpose('')
                     setGeneratedMessages([])
+                    setProgressLog([])
                   }}
                   className="flex-1 px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg"
                 >
@@ -381,26 +442,6 @@ export default function BulkOutreachPage() {
                 </Link>
               </div>
             </div>
-          </div>
-        )}
-
-        {step === 'generating' && (
-          <div className="text-center bg-white rounded-xl shadow-lg p-16 border-4 border-gray-200">
-            <div className="animate-spin text-7xl mb-6">⏳</div>
-            <p className="text-3xl text-gray-700 font-bold">{message}</p>
-            {generatedMessages.length > 0 && (
-              <div className="mt-8">
-                <p className="text-2xl text-gray-700 font-bold mb-4">
-                  Generated so far: {generatedMessages.length}/{strategies.length}
-                </p>
-                <div className="w-full bg-gray-300 rounded-full h-6 mb-4">
-                  <div
-                    className="bg-green-600 h-6 rounded-full transition-all"
-                    style={{ width: `${generationProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
