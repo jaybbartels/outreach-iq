@@ -19,13 +19,22 @@ export async function POST(request: Request) {
     const { executive, strategy, channel, bdProfile, isVariant, objective, messageContext } =
       await request.json()
 
+    console.log('=== GENERATE MESSAGES REQUEST ===')
+    console.log('Executive:', executive?.name)
+    console.log('Channel:', channel)
+    console.log('Strategy keys:', strategy ? Object.keys(strategy) : 'null')
+    console.log('BDProfile:', bdProfile?.name)
+
     if (!executive || !strategy || !channel || !bdProfile) {
+      console.log('❌ Missing required fields')
+      console.log('  executive:', !!executive)
+      console.log('  strategy:', !!strategy)
+      console.log('  channel:', !!channel)
+      console.log('  bdProfile:', !!bdProfile)
       return Response.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    console.log(
-      `📧 Generating ${isVariant ? 'variant' : ''} ${channel} messages for ${executive.name}`
-    )
+    console.log(`📧 Generating ${isVariant ? 'variant' : ''} ${channel} messages for ${executive.name}`)
 
     const channelGuidelines: { [key: string]: { length: string; tone: string; format: string } } = {
       email: {
@@ -61,6 +70,23 @@ export async function POST(request: Request) {
 
     const guidelines = channelGuidelines[channel] || channelGuidelines.email
 
+    // Get strategy - handle both old and new formats
+    let strategyType = 'linkedin'
+    let strategyDesc = 'Connect and build relationship'
+    let strategyReason = 'Professional connection'
+
+    if (strategy.primary) {
+      strategyType = strategy.primary.type || 'linkedin'
+      strategyDesc = strategy.primary.description || 'Connect and build relationship'
+      strategyReason = strategy.primary.reasoning || 'Professional connection'
+    } else if (strategy.type) {
+      strategyType = strategy.type
+      strategyDesc = strategy.description || 'Connect and build relationship'
+      strategyReason = strategy.reasoning || 'Professional connection'
+    }
+
+    console.log(`Strategy: ${strategyType} - ${strategyDesc}`)
+
     const prompt = `Generate personalized outreach messages for this scenario.
 
 EXECUTIVE: ${executive.name} (${executive.title})
@@ -73,9 +99,9 @@ SENDER PROFILE:
 - Goals: ${bdProfile.goals || 'Strategic partnership'}
 
 RECOMMENDED STRATEGY:
-- Type: ${strategy.primary.type}
-- Approach: ${strategy.primary.description}
-- Why: ${strategy.primary.reasoning}
+- Type: ${strategyType}
+- Approach: ${strategyDesc}
+- Why: ${strategyReason}
 
 MESSAGE PURPOSE: ${contextTypeGuidance}
 ${documentContext}
@@ -113,6 +139,8 @@ IMPORTANT:
       messages: [{ role: 'user', content: prompt }],
     })
 
+    console.log('✅ Claude responded')
+
     let responseText =
       message.content[0].type === 'text' ? message.content[0].text : ''
 
@@ -121,11 +149,12 @@ IMPORTANT:
       .replace(/```\n?/g, '')
       .trim()
 
+    console.log('Parsing JSON...')
     let generatedMessages = JSON.parse(responseText)
-
-    console.log('✅ Claude generated messages, saving to DB...')
+    console.log('✅ JSON parsed successfully')
 
     if (!isVariant) {
+      console.log('Saving to database...')
       const { data: existingMessage, error: existingError } = await supabase
         .from('messages')
         .select('id')
@@ -145,7 +174,7 @@ IMPORTANT:
             original_message: generatedMessages.original_message,
             follow_ups: generatedMessages.follow_ups,
             tips: generatedMessages.tips,
-            strategy_type: strategy.primary.type,
+            strategy_type: strategyType,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingMessage.id)
@@ -154,54 +183,16 @@ IMPORTANT:
       } else {
         console.log('Creating new message...')
         const { error: insertError } = await supabase.from('messages').insert({
-          executive_id: executive.id,
+          executive_id: executive.id || '',
           executive_name: executive.name,
           channel,
-          strategy_type: strategy.primary.type,
+          strategy_type: strategyType,
           original_message: generatedMessages.original_message,
           follow_ups: generatedMessages.follow_ups,
           tips: generatedMessages.tips,
         })
 
         if (insertError) throw insertError
-      }
-    } else {
-      console.log('Creating variant...')
-      const { data: mainMessage, error: mainError } = await supabase
-        .from('messages')
-        .select('id')
-        .eq('executive_name', executive.name)
-        .eq('channel', channel)
-        .single()
-
-      if (mainError && mainError.code !== 'PGRST116') {
-        throw mainError
-      }
-
-      if (mainMessage) {
-        const { data: variants, error: variantError } = await supabase
-          .from('message_variants')
-          .select('variant_number')
-          .eq('message_id', mainMessage.id)
-          .order('variant_number', { ascending: false })
-          .limit(1)
-
-        if (variantError && variantError.code !== 'PGRST116') {
-          throw variantError
-        }
-
-        const nextVariantNumber = variants && variants.length > 0 ? variants[0].variant_number + 1 : 1
-
-        const { error: insertVarError } = await supabase.from('message_variants').insert({
-          message_id: mainMessage.id,
-          variant_number: nextVariantNumber,
-          objective,
-          original_message: generatedMessages.original_message,
-          follow_ups: generatedMessages.follow_ups,
-          tips: generatedMessages.tips,
-        })
-
-        if (insertVarError) throw insertVarError
       }
     }
 
@@ -218,6 +209,7 @@ IMPORTANT:
       '❌ Error:',
       error instanceof Error ? error.message : String(error)
     )
+    console.error('Stack:', error instanceof Error ? error.stack : '')
     return Response.json(
       {
         error: 'Failed to generate messages',
