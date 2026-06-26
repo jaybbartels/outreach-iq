@@ -8,6 +8,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const CONTEXT_TYPE_GUIDANCE: { [key: string]: string } = {
+  selling: 'The sender is trying to sell/pitch something. Reference benefits and value propositions.',
+  opinion: 'The sender wants the executive\'s feedback and perspective. Ask for their thoughts.',
+  awareness: 'The sender is informing about important news or development. Present it professionally.',
+}
+
 export async function POST(request: Request) {
   try {
     const { executive, strategy, channel, bdProfile, isVariant, objective, messageContext } =
@@ -21,7 +27,7 @@ export async function POST(request: Request) {
       `📧 Generating ${isVariant ? 'variant' : ''} ${channel} messages for ${executive.name}`
     )
 
-    const channelGuidelines = {
+    const channelGuidelines: { [key: string]: { length: string; tone: string; format: string } } = {
       email: {
         length: '200-300 words',
         tone: 'Professional, warm, specific',
@@ -47,13 +53,13 @@ export async function POST(request: Request) {
       ? `\n\nDOCUMENT CONTEXT:\nType: ${messageContext.contextType}\nFilename: ${messageContext.documentName}\nContent: ${messageContext.documentContent}\n\nUse this document to customize your message. Reference specific points from it where relevant.`
       : ''
 
-    const contextTypeGuidance = messageContext && messageContext.contextType !== 'none'
-      ? {
-          selling: 'The sender is trying to sell/pitch something. Reference benefits and value propositions.',
-          opinion: 'The sender wants the executive\'s feedback and perspective. Ask for their thoughts.',
-          awareness: 'The sender is informing about important news or development. Present it professionally.',
-        }[messageContext.contextType] || ''
-      : 'This is a general introductory outreach with no specific document context.'
+    let contextTypeGuidance = 'This is a general introductory outreach with no specific document context.'
+    if (messageContext && messageContext.contextType !== 'none') {
+      const contextType = messageContext.contextType as string
+      contextTypeGuidance = CONTEXT_TYPE_GUIDANCE[contextType] || contextTypeGuidance
+    }
+
+    const guidelines = channelGuidelines[channel] || channelGuidelines.email
 
     const prompt = `Generate personalized outreach messages for this scenario.
 
@@ -75,7 +81,7 @@ MESSAGE PURPOSE: ${contextTypeGuidance}
 ${documentContext}
 
 CHANNEL: ${channel.toUpperCase()}
-Guidelines: ${JSON.stringify(channelGuidelines[channel as keyof typeof channelGuidelines])}
+Guidelines: ${JSON.stringify(guidelines)}
 ${objectiveContext}
 
 Generate a JSON object with these exact fields:
@@ -123,7 +129,7 @@ IMPORTANT:
       const { data: existingMessage, error: existingError } = await supabase
         .from('messages')
         .select('id')
-        .eq('executive_id', executive.id)
+        .eq('executive_name', executive.name)
         .eq('channel', channel)
         .single()
 
@@ -149,6 +155,7 @@ IMPORTANT:
         console.log('Creating new message...')
         const { error: insertError } = await supabase.from('messages').insert({
           executive_id: executive.id,
+          executive_name: executive.name,
           channel,
           strategy_type: strategy.primary.type,
           original_message: generatedMessages.original_message,
@@ -163,7 +170,7 @@ IMPORTANT:
       const { data: mainMessage, error: mainError } = await supabase
         .from('messages')
         .select('id')
-        .eq('executive_id', executive.id)
+        .eq('executive_name', executive.name)
         .eq('channel', channel)
         .single()
 
