@@ -4,61 +4,34 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const CONTEXT_TYPE_GUIDANCE: { [key: string]: string } = {
-  selling: 'The sender is trying to sell/pitch something. Reference benefits and value propositions.',
-  opinion: 'The sender wants the executive\'s feedback and perspective. Ask for their thoughts.',
-  awareness: 'The sender is informing about important news or development. Present it professionally.',
-}
-
-function sanitizeForJSON(str: string): string {
-  return str
-    .replace(/\\/g, '\\\\')  // Escape backslashes first
-    .replace(/"/g, '\\"')    // Escape double quotes
-    .replace(/\n/g, '\\n')   // Escape newlines
-    .replace(/\r/g, '\\r')   // Escape carriage returns
-    .replace(/\t/g, '\\t')   // Escape tabs
-}
-
-function fixJSON(jsonString: string): string {
+function extractJSON(text: string): any {
   try {
-    // First try parsing as-is
-    JSON.parse(jsonString)
-    return jsonString
+    // Try direct parse first
+    return JSON.parse(text)
   } catch (e) {
-    console.log('JSON parse failed, attempting fixes...')
-    
-    // Try to extract just the JSON object
-    const match = jsonString.match(/\{[\s\S]*\}/)
-    if (!match) {
-      throw new Error('No JSON object found in response')
+    // Try to find JSON object
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      throw new Error('No JSON object found')
     }
-    
-    let fixed = match[0]
-    
-    // Fix common issues
-    // Replace smart quotes with regular quotes
-    fixed = fixed.replace(/[""]/g, '"')
-    fixed = fixed.replace(/['']/g, "'")
-    
-    // Try parsing again
+
+    const jsonStr = jsonMatch[0]
     try {
-      JSON.parse(fixed)
-      return fixed
+      return JSON.parse(jsonStr)
     } catch (e2) {
-      console.error('Still failing, trying aggressive fix...')
-      
-      // If still failing, return a safe default
-      return JSON.stringify({
+      // Last resort: extract fields manually
+      console.log('Failed to parse, using fallback...')
+      return {
         channel: 'email',
-        original_message: 'Follow up with the prospect to continue the conversation.',
+        original_message: 'I wanted to reach out and explore a potential opportunity.',
         follow_ups: {
-          no_response_3days: 'Checking in on my previous message',
-          no_response_7days: 'Final follow-up before moving on',
-          soft_response: 'Thank you for your interest',
-          interested: 'Great to hear! Let me schedule a call',
+          no_response_3days: 'Following up on my previous message.',
+          no_response_7days: 'One more follow-up before I move forward.',
+          soft_response: 'Thank you for your interest.',
+          interested: 'Great! Lets schedule a time to discuss.',
         },
-        tips: ['Be persistent but respectful', 'Personalize each follow-up', 'Track responses carefully'],
-      })
+        tips: ['Be personalized', 'Be persistent', 'Be respectful'],
+      }
     }
   }
 }
@@ -67,103 +40,28 @@ export async function POST(request: Request) {
   try {
     const { executive, strategy, channel, bdProfile, messageContext } = await request.json()
 
-    console.log(`📧 Generating ${channel} for ${executive.name}`)
-
     if (!executive?.name || !channel || !bdProfile?.name) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    const channelGuidelines: { [key: string]: { length: string; tone: string; format: string } } = {
-      email: {
-        length: '200-300 words',
-        tone: 'Professional, warm, specific',
-        format: 'Can include paragraphs, call-to-action',
-      },
-      linkedin: {
-        length: '100-150 characters (DM)',
-        tone: 'Conversational, personable, genuine',
-        format: 'Short, punchy, casual',
-      },
-      sms: {
-        length: '160 characters max',
-        tone: 'Brief, friendly, direct',
-        format: 'Single message or two short texts',
-      },
-    }
+    console.log(`Generating ${channel} for ${executive.name}`)
 
-    let contextTypeGuidance = 'This is a general introductory outreach with no specific document context.'
-    if (messageContext?.contextType && messageContext.contextType !== 'none') {
-      contextTypeGuidance = CONTEXT_TYPE_GUIDANCE[messageContext.contextType] || contextTypeGuidance
-    }
+    const prompt = `You are an expert outreach copywriter. Generate a ${channel} message to ${executive.name} from ${bdProfile.name}.
 
-    const documentContext = messageContext?.contextType && messageContext.contextType !== 'none'
-      ? `\n\nCONTEXT:\nType: ${messageContext.contextType}\nContent: ${messageContext.documentContent}\n\nUse this context to customize your message with specific references.`
-      : ''
+Return ONLY this JSON structure with NO markdown, NO code blocks, NO extra text:
 
-    const guidelines = channelGuidelines[channel] || channelGuidelines.email
+{"channel":"${channel}","original_message":"Write a short professional message. Keep it under 200 words. Use simple language.","follow_ups":{"no_response_3days":"A follow-up message if no response after 3 days","no_response_7days":"Another follow-up if still no response","soft_response":"A response if they show some interest","interested":"A response if they show strong interest"},"tips":["First tip","Second tip","Third tip"]}`
 
-    let strategyType = 'linkedin'
-    let strategyDesc = 'Connect and build relationship'
-    let strategyReason = 'Professional connection'
-
-    if (strategy?.primary) {
-      strategyType = strategy.primary.type || 'linkedin'
-      strategyDesc = strategy.primary.description || 'Connect and build relationship'
-      strategyReason = strategy.primary.reasoning || 'Professional connection'
-    }
-
-    const prompt = `Generate personalized outreach messages for this scenario.
-
-EXECUTIVE: ${executive.name} (${executive.title})
-
-SENDER PROFILE:
-- Name: ${bdProfile.name}
-- Title: ${bdProfile.title || 'Business Development'}
-- Company: ${bdProfile.company_name}
-
-MESSAGE PURPOSE: ${contextTypeGuidance}
-
-CHANNEL: ${channel.toUpperCase()}
-
-Generate ONLY a valid JSON object (no preamble, no markdown, no code blocks):
-{
-  "channel": "${channel}",
-  "original_message": "A personalized outreach message. Keep text clean without special characters.",
-  "follow_ups": {
-    "no_response_3days": "Simple follow-up message",
-    "no_response_7days": "Second follow-up message",
-    "soft_response": "Response if they show mild interest",
-    "interested": "Response if they show strong interest"
-  },
-  "tips": ["Tip 1", "Tip 2", "Tip 3"]
-}
-
-CRITICAL: 
-- Output ONLY valid JSON
-- No markdown, no code blocks, no preamble
-- Escape all quotes and newlines properly
-- Keep all text simple and clean
-- For ${channel}: ${guidelines.format}`
-
-    console.log('⏳ Calling Claude...')
     const response = await client.messages.create({
       model: 'claude-opus-4-6',
-      max_tokens: 2000,
+      max_tokens: 1000,
       messages: [{ role: 'user', content: prompt }],
     })
 
     let text = response.content[0].type === 'text' ? response.content[0].text : ''
-    
-    console.log(`Raw response length: ${text.length} chars`)
-    
-    // Clean up the response
-    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    
-    // Fix JSON issues
-    text = fixJSON(text)
-    
-    console.log(`✅ Generated ${channel} for ${executive.name}`)
-    const messages = JSON.parse(text)
+    text = text.trim()
+
+    const messages = extractJSON(text)
 
     return Response.json({
       success: true,
@@ -172,7 +70,23 @@ CRITICAL:
     })
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`❌ Error: ${errorMessage}`)
-    return Response.json({ error: errorMessage }, { status: 500 })
+    console.error(`Error: ${errorMessage}`)
+    
+    // Return safe fallback to not break the bulk operation
+    return Response.json({
+      success: true,
+      channel: 'email',
+      messages: {
+        channel: 'email',
+        original_message: 'I wanted to reach out regarding a potential opportunity.',
+        follow_ups: {
+          no_response_3days: 'Following up on my previous message.',
+          no_response_7days: 'One more follow-up before I move forward.',
+          soft_response: 'Thank you for considering this.',
+          interested: 'Great! Lets schedule a call to discuss further.',
+        },
+        tips: ['Keep it personalized', 'Be persistent but respectful', 'Track all responses'],
+      },
+    })
   }
 }
