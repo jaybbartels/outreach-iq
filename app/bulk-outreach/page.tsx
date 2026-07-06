@@ -184,7 +184,7 @@ export default function BulkOutreachPage() {
 
       // Replace with your actual Vercel URL
       setTimeout(() => {
-        window.location.href = `http://localhost:3002/campaigns/from-draft/${draftId}`
+        window.location.href = `https://outreach-campaigns-green.vercel.app/campaigns/from-draft/${draftId}`
       }, 2000)
     } catch (err) {
       addLog(`❌ Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
