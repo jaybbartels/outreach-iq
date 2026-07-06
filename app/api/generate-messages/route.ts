@@ -6,10 +6,8 @@ const client = new Anthropic({
 
 function extractJSON(text: string): any {
   try {
-    // Try direct parse first
     return JSON.parse(text)
   } catch (e) {
-    // Try to find JSON object
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       throw new Error('No JSON object found')
@@ -19,7 +17,6 @@ function extractJSON(text: string): any {
     try {
       return JSON.parse(jsonStr)
     } catch (e2) {
-      // Last resort: extract fields manually
       console.log('Failed to parse, using fallback...')
       return {
         channel: 'email',
@@ -46,11 +43,25 @@ export async function POST(request: Request) {
 
     console.log(`Generating ${channel} for ${executive.name}`)
 
-    const prompt = `You are an expert outreach copywriter. Generate a ${channel} message to ${executive.name} from ${bdProfile.name}.
+    // Build company context from available data
+    const companyContext = `
+${executive.company_name ? `Company: ${executive.company_name}` : ''}
+${executive.hq_location ? `Location: ${executive.hq_location}` : ''}
+${executive.phone ? `Phone: ${executive.phone}` : ''}
+${executive.industry ? `Industry: ${executive.industry}` : ''}
+`
 
-Return ONLY this JSON structure with NO markdown, NO code blocks, NO extra text:
+    const prompt = `You are an expert outreach copywriter. Generate a ${channel} message to ${executive.name} (${executive.title}) from ${bdProfile.name}.
 
-{"channel":"${channel}","original_message":"Write a short professional message. Keep it under 200 words. Use simple language.","follow_ups":{"no_response_3days":"A follow-up message if no response after 3 days","no_response_7days":"Another follow-up if still no response","soft_response":"A response if they show some interest","interested":"A response if they show strong interest"},"tips":["First tip","Second tip","Third tip"]}`
+${companyContext}
+
+Strategy: ${strategy?.type || 'General Outreach'}
+Strategy Focus: ${strategy?.description || 'Build business relationship'}
+
+${messageContext?.documentContent ? `Context: ${messageContext.documentContent.substring(0, 500)}` : ''}
+
+Return ONLY this JSON with NO markdown:
+{"channel":"${channel}","original_message":"Craft a compelling, personalized message. Reference their company/role if relevant. Keep under 200 words.","follow_ups":{"no_response_3days":"3-day follow-up if no response","no_response_7days":"7-day follow-up if still no response","soft_response":"Response if they show interest","interested":"Response if they show strong interest"},"tips":["Tip 1","Tip 2","Tip 3"]}`
 
     const response = await client.messages.create({
       model: 'claude-opus-4-6',
@@ -72,20 +83,19 @@ Return ONLY this JSON structure with NO markdown, NO code blocks, NO extra text:
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error(`Error: ${errorMessage}`)
     
-    // Return safe fallback to not break the bulk operation
     return Response.json({
       success: true,
       channel: 'email',
       messages: {
         channel: 'email',
-        original_message: 'I wanted to reach out regarding a potential opportunity.',
+        original_message: 'I wanted to reach out regarding a potential opportunity with your organization.',
         follow_ups: {
           no_response_3days: 'Following up on my previous message.',
           no_response_7days: 'One more follow-up before I move forward.',
           soft_response: 'Thank you for considering this.',
           interested: 'Great! Lets schedule a call to discuss further.',
         },
-        tips: ['Keep it personalized', 'Be persistent but respectful', 'Track all responses'],
+        tips: ['Keep it personalized', 'Be persistent but respectful', 'Reference their company when possible'],
       },
     })
   }

@@ -15,6 +15,7 @@ interface Strategy {
 }
 
 interface BulkMessage {
+  executiveId: string
   executiveName: string
   email: string
   title: string
@@ -29,9 +30,11 @@ export default function BulkOutreachPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [outreachPurpose, setOutreachPurpose] = useState('')
+  const [campaignName, setCampaignName] = useState('')
   const [generatedMessages, setGeneratedMessages] = useState<BulkMessage[]>([])
   const [step, setStep] = useState<'input' | 'generating' | 'preview'>('input')
   const [progressLog, setProgressLog] = useState<string[]>([])
+  const [savingToDB, setSavingToDB] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -54,7 +57,7 @@ export default function BulkOutreachPage() {
 
       const { data: execData } = await supabase
         .from('executives')
-        .select('*')
+        .select('id, name, title, email')
         .in('id', campaign.selectedExecutiveIds)
 
       if (execData) {
@@ -72,6 +75,7 @@ export default function BulkOutreachPage() {
           },
         }))
         setStrategies(strats)
+        setCampaignName(`Campaign - ${new Date().toLocaleDateString()}`)
       }
     } catch (error) {
       console.error('Error loading data:', error)
@@ -90,6 +94,11 @@ export default function BulkOutreachPage() {
       return
     }
 
+    if (!campaignName.trim()) {
+      setMessage('❌ Please enter a campaign name')
+      return
+    }
+
     if (strategies.length === 0) {
       setMessage('❌ No executives to generate messages for')
       return
@@ -98,202 +107,123 @@ export default function BulkOutreachPage() {
     try {
       setLoading(true)
       setStep('generating')
-      setGeneratedMessages([])
       setProgressLog([])
-      addLog(`📊 Starting bulk message generation for ${strategies.length} executives...`)
-
-      const allMessages: BulkMessage[] = []
+      setGeneratedMessages([])
+      addLog(`🚀 Starting message generation for ${strategies.length} executives...\n`)
 
       for (let i = 0; i < strategies.length; i++) {
         const exec = strategies[i]
-        addLog(`\n[${i + 1}/${strategies.length}] Processing ${exec.name}...`)
+        addLog(`\n📧 Generating for ${i + 1}/${strategies.length}: ${exec.name}`)
 
-        try {
-          // Generate email message
-          addLog(`  📧 Generating email for ${exec.name}...`)
-          const emailResponse = await fetch('/api/generate-messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              executive: exec,
-              strategy: exec.strategies,
-              channel: 'email',
-              bdProfile: profile,
-              isVariant: false,
-              messageContext: {
-                contextType: 'none',
-                documentName: '',
-                documentContent: outreachPurpose,
-              },
-            }),
-          })
+        const response = await fetch('/api/generate-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            executive: { name: exec.name, title: exec.title },
+            strategy: exec.strategies.primary,
+            channel: 'email',
+            bdProfile: profile,
+          }),
+        })
 
-          if (!emailResponse.ok) {
-            addLog(`  ❌ Email API error: ${emailResponse.status}`)
-            throw new Error(`Email API error: ${emailResponse.status}`)
-          }
+        const result = await response.json()
+        addLog(`  ✅ Email generated`)
 
-          const emailData = await emailResponse.json()
-          const emailMessage = emailData.messages?.original_message || ''
-          addLog(
-            `  ✅ Email generated: ${emailMessage.substring(0, 50).replace(/\n/g, ' ')}...`
-          )
-
-          // Generate LinkedIn message
-          addLog(`  🔗 Generating LinkedIn for ${exec.name}...`)
-          const linkedinResponse = await fetch('/api/generate-messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              executive: exec,
-              strategy: exec.strategies,
-              channel: 'linkedin',
-              bdProfile: profile,
-              isVariant: false,
-              messageContext: {
-                contextType: 'none',
-                documentName: '',
-                documentContent: outreachPurpose,
-              },
-            }),
-          })
-
-          if (!linkedinResponse.ok) {
-            addLog(`  ❌ LinkedIn API error: ${linkedinResponse.status}`)
-            throw new Error(`LinkedIn API error: ${linkedinResponse.status}`)
-          }
-
-          const linkedinData = await linkedinResponse.json()
-          const linkedinMessage = linkedinData.messages?.original_message || ''
-          addLog(
-            `  ✅ LinkedIn generated: ${linkedinMessage.substring(0, 50).replace(/\n/g, ' ')}...`
-          )
-
-          // Generate SMS message
-          addLog(`  💬 Generating SMS for ${exec.name}...`)
-          const smsResponse = await fetch('/api/generate-messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              executive: exec,
-              strategy: exec.strategies,
-              channel: 'sms',
-              bdProfile: profile,
-              isVariant: false,
-              messageContext: {
-                contextType: 'none',
-                documentName: '',
-                documentContent: outreachPurpose,
-              },
-            }),
-          })
-
-          if (!smsResponse.ok) {
-            addLog(`  ❌ SMS API error: ${smsResponse.status}`)
-            throw new Error(`SMS API error: ${smsResponse.status}`)
-          }
-
-          const smsData = await smsResponse.json()
-          const smsMessage = smsData.messages?.original_message || ''
-          addLog(`  ✅ SMS generated: ${smsMessage.substring(0, 50).replace(/\n/g, ' ')}...`)
-
-          // Create message object
-          const msgObj: BulkMessage = {
+        setGeneratedMessages((prev) => [
+          ...prev,
+          {
+            executiveId: exec.executiveId,
             executiveName: exec.name,
             email: exec.email,
             title: exec.title,
-            emailMessage,
-            linkedinMessage,
-            smsMessage,
-          }
-
-          // Verify message object
-          addLog(
-            `  ✅ Message object created: ${msgObj.executiveName} | Email: ${msgObj.email}`
-          )
-
-          allMessages.push(msgObj)
-          setGeneratedMessages([...allMessages])
-          addLog(`  ✅ Messages accumulated: ${allMessages.length}/${strategies.length}`)
-        } catch (error) {
-          addLog(`  ❌ Error for ${exec.name}: ${String(error)}`)
-          const msgObj: BulkMessage = {
-            executiveName: exec.name,
-            email: exec.email,
-            title: exec.title,
-            emailMessage: `Error: ${String(error)}`,
-            linkedinMessage: 'Error generating',
-            smsMessage: 'Error generating',
-          }
-          allMessages.push(msgObj)
-          setGeneratedMessages([...allMessages])
-        }
+            emailMessage: result.messages?.original_message || 'Generated message',
+            linkedinMessage: result.messages?.original_message || 'Generated message',
+            smsMessage: result.messages?.original_message || 'Generated message',
+          },
+        ])
       }
 
-      addLog(`\n✅ Generation complete! Total: ${allMessages.length} executives`)
-      setGeneratedMessages(allMessages)
-      setStep('preview')
-      setMessage('✅ Messages generated successfully!')
+      addLog(`\n✅ All messages generated!`)
+      setMessage('✅ Ready to save!')
     } catch (error) {
-      addLog(`❌ Critical error: ${String(error)}`)
-      setMessage('❌ Error generating messages: ' + String(error))
-      setStep('input')
+      addLog(`\n❌ Error: ${String(error)}`)
+      setMessage(`❌ Error generating messages`)
     } finally {
       setLoading(false)
     }
   }
 
-  const downloadSpreadsheet = () => {
-    if (generatedMessages.length === 0) {
-      setMessage('❌ No messages to export')
-      return
-    }
+  const saveToDatabase = async () => {
+    setSavingToDB(true)
+    addLog(`\n💾 Saving campaign draft to database...\n`)
 
     try {
-      addLog(`\n📥 Exporting ${generatedMessages.length} messages to Excel...`)
+      // Save campaign draft with executive IDs
+      const { data, error } = await supabase
+        .from('campaign_drafts')
+        .insert([{
+          campaign_name: campaignName,
+          purpose: outreachPurpose,
+          channel: 'email',
+          status: 'draft',
+          selected_executive_ids: strategies.map((s) => s.executiveId),
+          messages: generatedMessages,
+        }])
+        .select()
+
+      if (error) {
+        throw new Error(`Failed to save: ${error.message}`)
+      }
+
+      const draftId = data[0].id
+      addLog(`✅ Campaign saved!`)
+      addLog(`📍 Draft ID: ${draftId}`)
+      addLog(`👥 Executives: ${strategies.length}`)
+      addLog(`\n🔗 Opening OutreachCampaigns...\n`)
+      setMessage('✅ Campaign saved! Redirecting to OutreachCampaigns...')
+
+      // Replace with your actual Vercel URL
+      setTimeout(() => {
+        window.location.href = `http://localhost:3002/campaigns/from-draft/${draftId}`
+      }, 2000)
+    } catch (err) {
+      addLog(`❌ Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setMessage(`❌ Failed to save campaign`)
+    } finally {
+      setSavingToDB(false)
+    }
+  }
+
+  const downloadSpreadsheet = () => {
+    try {
+      addLog(`\n📥 Exporting to Excel...`)
 
       const data = generatedMessages.map((msg) => ({
         'Executive Name': msg.executiveName,
         'Title': msg.title,
         'Email': msg.email,
         'Email Message': msg.emailMessage,
-        'LinkedIn Message': msg.linkedinMessage,
-        'SMS Message': msg.smsMessage,
       }))
-
-      addLog(`  Creating workbook with ${data.length} rows...`)
 
       const ws = XLSX.utils.json_to_sheet(data)
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Outreach Messages')
+      XLSX.utils.book_append_sheet(wb, ws, 'Messages')
 
-      ws['!cols'] = [
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 30 },
-        { wch: 60 },
-        { wch: 60 },
-        { wch: 40 },
-      ]
+      ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 60 }]
 
-      XLSX.writeFile(wb, 'bulk-outreach-messages.xlsx')
-      addLog(`✅ Spreadsheet downloaded successfully!`)
-      setMessage('✅ Spreadsheet downloaded successfully!')
+      XLSX.writeFile(wb, `${campaignName}.xlsx`)
+      addLog(`✅ Downloaded!`)
     } catch (error) {
-      addLog(`❌ Error downloading: ${String(error)}`)
-      setMessage('❌ Error downloading spreadsheet')
+      addLog(`❌ Error: ${String(error)}`)
     }
   }
 
   return (
     <div className="bg-gray-50 min-h-screen py-12">
       <div className="max-w-6xl mx-auto px-6 space-y-8">
-        {/* Header */}
         <div className="bg-gradient-to-r from-green-600 to-green-800 rounded-xl shadow-lg p-12 text-white">
           <h1 className="text-6xl font-bold mb-4">📊 Bulk Outreach Campaign</h1>
-          <p className="text-2xl">
-            Generate messages for {strategies.length} executives across all channels
-          </p>
+          <p className="text-2xl">{strategies.length} executives selected from Outreach 1 MVP</p>
         </div>
 
         {message && (
@@ -310,52 +240,58 @@ export default function BulkOutreachPage() {
 
         {step === 'input' && (
           <div className="bg-white rounded-xl shadow-lg p-12 border-4 border-gray-200 space-y-8">
-            <h2 className="text-4xl font-bold text-gray-900">Step 1: Define Outreach Purpose</h2>
+            <h2 className="text-4xl font-bold text-gray-900">Step 1: Campaign Details</h2>
 
             <div>
-              <label className="block text-2xl font-bold text-gray-900 mb-4">
-                What's the purpose of this outreach campaign?
-              </label>
+              <label className="block text-2xl font-bold text-gray-900 mb-4">Campaign Name</label>
+              <input
+                type="text"
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="e.g., Healthcare Q3 Outreach"
+                className="w-full px-6 py-4 text-lg text-gray-900 border-4 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-2xl font-bold text-gray-900 mb-4">Campaign Purpose</label>
               <textarea
                 value={outreachPurpose}
                 onChange={(e) => setOutreachPurpose(e.target.value)}
-                placeholder="E.g., Introduce new product, request partnership discussion, share industry insights..."
+                placeholder="E.g., Introduce new product, request partnership..."
                 className="w-full px-6 py-4 text-lg text-gray-900 border-4 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none h-32 resize-none"
               />
             </div>
 
             <div className="bg-blue-50 border-4 border-blue-300 rounded-lg p-6">
               <p className="text-lg font-bold text-blue-900">
-                📋 {strategies.length} executives will receive personalized messages across Email, LinkedIn, and SMS
+                📋 {strategies.length} executives ready
               </p>
             </div>
 
             <button
               onClick={generateBulkMessages}
-              disabled={loading || !outreachPurpose.trim()}
+              disabled={loading || !outreachPurpose.trim() || !campaignName.trim()}
               className="w-full px-8 py-6 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-bold text-2xl"
             >
-              {loading ? '⏳ Generating Messages...' : '🚀 Generate All Messages'}
+              {loading ? '⏳ Generating...' : '🚀 Generate Messages'}
             </button>
           </div>
         )}
 
         {step === 'generating' && (
           <div className="bg-white rounded-xl shadow-lg p-12 border-4 border-gray-200">
-            <h2 className="text-4xl font-bold text-gray-900 mb-6">Generation in Progress...</h2>
+            <h2 className="text-4xl font-bold text-gray-900 mb-6">Generating...</h2>
 
             <div className="bg-blue-50 border-4 border-blue-300 rounded-lg p-6 mb-6">
               <p className="text-xl font-bold text-blue-900">
-                Generated so far: {generatedMessages.length}/{strategies.length}
+                {generatedMessages.length}/{strategies.length} generated
               </p>
             </div>
 
-            {/* Progress Log */}
             <div className="bg-gray-900 text-white font-mono text-sm p-6 rounded-lg max-h-96 overflow-y-auto">
               {progressLog.map((log, idx) => (
-                <div key={idx} className="whitespace-pre-wrap break-words">
-                  {log}
-                </div>
+                <div key={idx}>{log}</div>
               ))}
             </div>
 
@@ -364,7 +300,7 @@ export default function BulkOutreachPage() {
                 onClick={() => setStep('preview')}
                 className="mt-6 w-full px-8 py-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-2xl"
               >
-                ✅ View Results
+                ✅ Review & Save
               </button>
             )}
           </div>
@@ -373,42 +309,33 @@ export default function BulkOutreachPage() {
         {step === 'preview' && generatedMessages.length > 0 && (
           <div className="space-y-8">
             <div className="bg-white rounded-xl shadow-lg p-12 border-4 border-gray-200">
-              <h2 className="text-4xl font-bold text-gray-900 mb-6">Step 2: Review & Export</h2>
+              <h2 className="text-4xl font-bold text-gray-900 mb-6">Step 2: Review & Save</h2>
 
               <div className="mb-8 bg-green-50 border-4 border-green-300 rounded-lg p-6">
                 <p className="text-xl font-bold text-green-900">
-                  ✅ Generated {generatedMessages.length} message sets (Email + LinkedIn + SMS)
+                  ✅ {generatedMessages.length} messages generated
+                </p>
+                <p className="text-sm text-green-700">
+                  💾 Save to database for OutreachCampaigns to access and override targets
                 </p>
               </div>
 
-              {/* Preview Table */}
               <div className="overflow-x-auto mb-8">
                 <table className="w-full border-4 border-gray-300 text-sm">
                   <thead>
                     <tr className="bg-gray-900 text-white">
                       <th className="px-3 py-2 text-left font-bold">Executive</th>
                       <th className="px-3 py-2 text-left font-bold">Email</th>
-                      <th className="px-3 py-2 text-left font-bold">Email Message</th>
-                      <th className="px-3 py-2 text-left font-bold">LinkedIn Message</th>
-                      <th className="px-3 py-2 text-left font-bold">SMS Message</th>
+                      <th className="px-3 py-2 text-left font-bold">Message Preview</th>
                     </tr>
                   </thead>
                   <tbody>
                     {generatedMessages.map((msg, idx) => (
                       <tr key={idx} className="border-t-4 border-gray-300">
-                        <td className="px-3 py-2">
-                          <p className="font-bold text-gray-900">{msg.executiveName}</p>
-                          <p className="text-gray-700 text-xs">{msg.title}</p>
-                        </td>
-                        <td className="px-3 py-2 text-gray-700 text-xs">{msg.email || '—'}</td>
+                        <td className="px-3 py-2 font-bold text-gray-900">{msg.executiveName}</td>
+                        <td className="px-3 py-2 text-gray-700 text-xs">{msg.email}</td>
                         <td className="px-3 py-2 text-gray-700 text-xs">
                           {msg.emailMessage.substring(0, 80)}...
-                        </td>
-                        <td className="px-3 py-2 text-gray-700 text-xs">
-                          {msg.linkedinMessage.substring(0, 80)}...
-                        </td>
-                        <td className="px-3 py-2 text-gray-700 text-xs">
-                          {msg.smsMessage.substring(0, 80)}...
                         </td>
                       </tr>
                     ))}
@@ -416,12 +343,21 @@ export default function BulkOutreachPage() {
                 </table>
               </div>
 
-              <button
-                onClick={downloadSpreadsheet}
-                className="w-full px-8 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-2xl mb-6"
-              >
-                📥 Download Spreadsheet (.xlsx)
-              </button>
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                <button
+                  onClick={downloadSpreadsheet}
+                  className="px-8 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xl"
+                >
+                  📥 Download Excel
+                </button>
+                <button
+                  onClick={saveToDatabase}
+                  disabled={savingToDB}
+                  className="px-8 py-6 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-bold text-xl"
+                >
+                  {savingToDB ? '⏳ Saving...' : '💾 Save to Database'}
+                </button>
+              </div>
 
               <div className="flex gap-6">
                 <button
@@ -431,13 +367,13 @@ export default function BulkOutreachPage() {
                     setGeneratedMessages([])
                     setProgressLog([])
                   }}
-                  className="flex-1 px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg"
+                  className="flex-1 px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold"
                 >
                   ← Start Over
                 </button>
                 <Link href="/strategies" className="flex-1">
-                  <button className="w-full px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold text-lg">
-                    🏠 Back to Strategies
+                  <button className="w-full px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-bold">
+                    🏠 Back
                   </button>
                 </Link>
               </div>
