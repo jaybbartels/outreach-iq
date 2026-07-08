@@ -74,29 +74,51 @@ export default function SetupPage() {
 
     try {
       if (selectedProfileId) {
+        console.log('Updating profile:', selectedProfileId)
         const { error } = await supabase
           .from('bd_profiles')
           .update({
-            ...profile,
+            name: profile.name,
+            title: profile.title,
+            company_name: profile.company_name,
+            email: profile.email,
+            phone: profile.phone,
+            linkedin_url: profile.linkedin_url,
+            expertise_tags: profile.expertise_tags,
+            goals: profile.goals,
             updated_at: new Date().toISOString(),
           })
           .eq('id', selectedProfileId)
 
-        if (error) throw error
+        if (error) {
+          console.error('Update error:', error)
+          throw new Error(error.message || 'Failed to update profile')
+        }
         setMessage(`✅ Profile updated: ${profile.name}`)
       } else {
+        console.log('Creating new profile')
         const { data, error } = await supabase
           .from('bd_profiles')
           .insert([
             {
               user_id: DEMO_USER_ID,
-              ...profile,
+              name: profile.name,
+              title: profile.title,
+              company_name: profile.company_name,
+              email: profile.email,
+              phone: profile.phone,
+              linkedin_url: profile.linkedin_url,
+              expertise_tags: profile.expertise_tags,
+              goals: profile.goals,
             },
           ])
           .select()
 
-        if (error) throw error
-        
+        if (error) {
+          console.error('Insert error:', error)
+          throw new Error(error.message || 'Failed to create profile')
+        }
+
         if (data && data[0] && data[0].id) {
           setSelectedProfileId(data[0].id)
           setMessage(`✅ Profile saved: ${profile.name}`)
@@ -112,7 +134,9 @@ export default function SetupPage() {
         })
       )
     } catch (error) {
-      setMessage('❌ Error saving profile: ' + String(error))
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      console.error('Save profile error:', errorMsg)
+      setMessage(`❌ Error saving profile: ${errorMsg}`)
     }
   }
 
