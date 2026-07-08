@@ -43,7 +43,9 @@ export default function SetupPage() {
     }
   }
 
-  const loadProfile = (profileId: string) => {
+  const loadProfile = (profileId: string | undefined) => {
+    if (!profileId) return
+    
     const selected = savedProfiles.find((p) => p.id === profileId)
     if (selected) {
       setProfile(selected)
@@ -72,7 +74,6 @@ export default function SetupPage() {
 
     try {
       if (selectedProfileId) {
-        // Update existing
         const { error } = await supabase
           .from('bd_profiles')
           .update({
@@ -84,7 +85,6 @@ export default function SetupPage() {
         if (error) throw error
         setMessage(`✅ Profile updated: ${profile.name}`)
       } else {
-        // Create new
         const { data, error } = await supabase
           .from('bd_profiles')
           .insert([
@@ -96,12 +96,15 @@ export default function SetupPage() {
           .select()
 
         if (error) throw error
-        setSelectedProfileId(data[0].id)
-        setMessage(`✅ Profile saved: ${profile.name}`)
+        
+        if (data && data[0] && data[0].id) {
+          setSelectedProfileId(data[0].id)
+          setMessage(`✅ Profile saved: ${profile.name}`)
+        }
+        
         loadProfiles()
       }
 
-      // Store in localStorage for campaign generation
       localStorage.setItem(
         'messageData',
         JSON.stringify({
@@ -147,7 +150,6 @@ export default function SetupPage() {
           </div>
         )}
 
-        {/* Profile Selector */}
         {!loading && savedProfiles.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-8 border-2 border-gray-200 mb-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">📚 Saved Profiles</h2>
@@ -176,7 +178,6 @@ export default function SetupPage() {
           </div>
         )}
 
-        {/* Profile Form */}
         <div className="bg-white rounded-xl shadow-lg p-12 border-2 border-gray-200 space-y-6">
           <h2 className="text-3xl font-bold text-gray-900">
             {selectedProfileId ? '✏️ Edit Profile' : '➕ New Profile'}
