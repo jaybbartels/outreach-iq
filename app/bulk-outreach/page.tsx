@@ -52,12 +52,13 @@ export default function BulkOutreachPage() {
       const messageData = localStorage.getItem('messageData')
 
       if (messageData) {
-        setProfile(JSON.parse(messageData).profile)
+        const parsed = JSON.parse(messageData)
+        setProfile(parsed.profile)
       }
 
       const { data: execData } = await supabase
         .from('executives')
-        .select('id, name, title, email')
+        .select('*')
         .in('id', campaign.selectedExecutiveIds)
 
       if (execData) {
@@ -158,7 +159,10 @@ export default function BulkOutreachPage() {
     addLog(`\n💾 Saving campaign draft to database...\n`)
 
     try {
-      // Save campaign draft with executive IDs
+      if (!profile?.id) {
+        throw new Error('User profile not found. Please set up your profile first.')
+      }
+
       const { data, error } = await supabase
         .from('campaign_drafts')
         .insert([{
@@ -166,6 +170,7 @@ export default function BulkOutreachPage() {
           purpose: outreachPurpose,
           channel: 'email',
           status: 'draft',
+          user_profile_id: profile.id,
           selected_executive_ids: strategies.map((s) => s.executiveId),
           messages: generatedMessages,
         }])
@@ -178,11 +183,11 @@ export default function BulkOutreachPage() {
       const draftId = data[0].id
       addLog(`✅ Campaign saved!`)
       addLog(`📍 Draft ID: ${draftId}`)
+      addLog(`👤 User Profile: ${profile.name}`)
       addLog(`👥 Executives: ${strategies.length}`)
       addLog(`\n🔗 Opening OutreachCampaigns...\n`)
       setMessage('✅ Campaign saved! Redirecting to OutreachCampaigns...')
 
-      // Replace with your actual Vercel URL
       setTimeout(() => {
         window.location.href = `https://outreach-campaigns-green.vercel.app/campaigns/from-draft/${draftId}`
       }, 2000)
@@ -224,6 +229,9 @@ export default function BulkOutreachPage() {
         <div className="bg-gradient-to-r from-green-600 to-green-800 rounded-xl shadow-lg p-12 text-white">
           <h1 className="text-6xl font-bold mb-4">📊 Bulk Outreach Campaign</h1>
           <p className="text-2xl">{strategies.length} executives selected from Outreach 1 MVP</p>
+          {profile && (
+            <p className="text-lg mt-4 opacity-90">From: {profile.name} ({profile.email})</p>
+          )}
         </div>
 
         {message && (
@@ -314,9 +322,6 @@ export default function BulkOutreachPage() {
               <div className="mb-8 bg-green-50 border-4 border-green-300 rounded-lg p-6">
                 <p className="text-xl font-bold text-green-900">
                   ✅ {generatedMessages.length} messages generated
-                </p>
-                <p className="text-sm text-green-700">
-                  💾 Save to database for OutreachCampaigns to access and override targets
                 </p>
               </div>
 
